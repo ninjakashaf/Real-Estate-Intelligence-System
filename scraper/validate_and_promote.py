@@ -2,12 +2,16 @@
 Data-quality gate between data/raw and data/processed.
 
 Run this after the scraper. It checks the raw CSV against a handful of
-sanity rules, prints a report, and — only if every check passes — copies
+sanity rules, prints a report, and — only if every check passes — writes
 the file into data/processed/. This is NOT the cleaning/EDA step (that
 still belongs in the notebook: fillna, stripping currency symbols, etc.)
 It's a much cheaper gate that catches "the scraper broke" before you waste
 notebook time on a bad file: right shape, right columns, not mostly empty,
 no duplicate listings, at least N rows.
+
+When a file is promoted, a sequential `id` column (1, 2, 3, ...) is added
+as the first column of the processed output — the raw file in data/raw/
+is left untouched; only the promoted copy gets numbered.
 
 Usage:
     python validate_and_promote.py
@@ -17,7 +21,6 @@ Usage:
 
 import argparse
 import csv
-import shutil
 import sys
 from pathlib import Path
 
@@ -34,6 +37,21 @@ def load_rows(path: Path):
     with open(path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         return reader.fieldnames, list(reader)
+
+
+def write_numbered(fieldnames, rows, processed_path: Path):
+    """Write rows to processed_path with a sequential `id` column (1..N) as
+    the first column. This numbering is only applied to the promoted output
+    — the raw file in data/raw/ is left untouched."""
+    out_fields = ["id"] + [c for c in fieldnames if c != "id"]
+    processed_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(processed_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=out_fields)
+        writer.writeheader()
+        for i, row in enumerate(rows, start=1):
+            row = dict(row)
+            row["id"] = i
+            writer.writerow(row)
 
 
 def validate(path: Path, min_rows: int):
@@ -107,10 +125,10 @@ def main():
     print("-" * 60)
 
     if all_passed or args.force:
-        processed_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(raw_path, processed_path)
+        fieldnames, _ = load_rows(raw_path)
+        write_numbered(fieldnames, rows, processed_path)
         verb = "Promoted" if all_passed else "Force-promoted (some checks FAILED — see above)"
-        print(f"{verb}: {raw_path} -> {processed_path}")
+        print(f"{verb}: {raw_path} -> {processed_path} ({len(rows)} rows, numbered id 1-{len(rows)})")
         sys.exit(0 if all_passed else 2)
     else:
         print(f"NOT promoted to {processed_path} — fix the issues above (or re-run the scraper) and try again.")
