@@ -11,7 +11,7 @@ Scikit-Learn regression model to predict property price.
 - Aliza
 - Kashaf
 - Massab
-- Zayn
+- Zain Ul Abideen
 
 ## Project pipeline
 
