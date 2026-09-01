@@ -3,9 +3,9 @@ Zameen.com property listings scraper — Playwright edition.
 
 Scrapes listing CARDS from Zameen's search-results pages (not individual
 listing detail pages) because each card page load returns ~25 listings at
-once, which is what makes hitting a 500+ row target realistic in a 7-day
-hackathon window. Detail-page scraping would be ~25x slower for the same
-row count.
+once, which is what makes hitting a 500+ (or 3000+) row target realistic
+in a 7-day hackathon window. Detail-page scraping would be ~25x slower for
+the same row count.
 
 Output columns (matches the team's agreed schema):
     url, type, purpose, area, bedroom, bath, added, price, location, location_city
@@ -25,15 +25,31 @@ separately labelled on the card, so they're parsed out of the listing title
 text (e.g. "... 3 beds Apartment For Sale In DHA Phase 5") with a fallback
 to the URL section (Homes = sale, Rentals = rent).
 
+City location IDs
+------------------
+Zameen URLs are /{purpose}/{City}-{locationId}-{page}.html — the location
+ID is NOT the same for every city (it's an internal Zameen id, not a
+pattern), so each city must be listed in CITY_IDS below with its real id.
+Verified live on zameen.com on 2026-09-01. If you add a city that's missing
+here, find its id by browsing to a Zameen search page for that city and
+reading the id out of the URL.
+
+Cross-run de-duplication
+-------------------------
+On startup, if the output CSV already exists, its URLs are loaded into the
+seen-set BEFORE scraping starts — so re-running this script (e.g. to add
+more cities, or top up after Zameen publishes new listings) only appends
+genuinely new rows instead of re-saving ones you already have.
+
 Politeness / ToS note
 ----------------------
 Zameen's robots.txt disallows crawling on some city-listing path patterns.
 This script is built for a small, one-off academic data pull (not a
 production crawler): it runs single-threaded, waits between page loads,
-identifies itself with a normal browser UA, and is meant to be run once (or
-a few times) to build a ~500-1000 row dataset, not on a schedule. If your
+identifies itself with a normal browser UA, and is meant to be run a
+handful of times to build the dataset, not on a schedule. If your
 institution or Zameen's terms require otherwise, prefer the Kaggle datasets
-listed in the team's data-source-research doc instead.
+listed in docs/data-source-research.md instead.
 """
 
 import argparse
@@ -47,6 +63,21 @@ from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 BASE_URL = "https://www.zameen.com"
+
+# City name (as used on the command line / in the location_city column) -> Zameen's internal location id.
+# Verified live on zameen.com on 2026-09-01.
+CITY_IDS = {
+    "Lahore": 1,
+    "Karachi": 2,
+    "Islamabad": 3,
+    "Rawalpindi": 41,
+    "Faisalabad": 16,
+    "Multan": 15,
+    "Peshawar": 17,
+    "Sialkot": 480,
+    "Gujranwala": 327,
+    "Quetta": 18,
+}
 
 # purpose_path -> label written into the `purpose` column
 PURPOSE_PATHS = {
@@ -131,10 +162,34 @@ def extract_listing(card, purpose_path: str, city: str) -> dict | None:
         return None
 
 
+def load_existing_urls(out_path: Path) -> set:
+    """Read URLs already saved from a previous run so re-runs don't duplicate rows."""
+    if not out_path.exists() or out_path.stat().st_size == 0:
+        return set()
+    seen = set()
+    with open(out_path, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            u = row.get("url")
+            if u:
+                seen.add(u)
+    return seen
+
+
 def scrape(cities, purpose_paths, max_pages_per_combo, out_path, headless=True, delay_range=(2.0, 4.0)):
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    seen_urls = set()
+
+    unknown = [c for c in cities if c not in CITY_IDS]
+    if unknown:
+        raise SystemExit(
+            f"Unknown city/cities (no location id on record): {unknown}. "
+            f"Known cities: {sorted(CITY_IDS)}. Add missing ones to CITY_IDS in this file."
+        )
+
+    seen_urls = load_existing_urls(out_path)
+    starting_count = len(seen_urls)
+    if starting_count:
+        print(f"Loaded {starting_count} existing URLs from {out_path} — those will be skipped this run.")
     total_written = 0
 
     write_header = not out_path.exists() or out_path.stat().st_size == 0
@@ -150,9 +205,10 @@ def scrape(cities, purpose_paths, max_pages_per_combo, out_path, headless=True, 
 
         for purpose_path in purpose_paths:
             for city in cities:
+                location_id = CITY_IDS[city]
                 empty_pages_in_a_row = 0
                 for page_num in range(1, max_pages_per_combo + 1):
-                    url = f"{BASE_URL}/{purpose_path}/{city}-1-{page_num}.html"
+                    url = f"{BASE_URL}/{purpose_path}/{city}-{location_id}-{page_num}.html"
                     print(f"[{purpose_path}/{city}] page {page_num}: {url}")
                     try:
                         page.goto(url, timeout=30000, wait_until="domcontentloaded")
@@ -181,22 +237,26 @@ def scrape(cities, purpose_paths, max_pages_per_combo, out_path, headless=True, 
                             page_new += 1
                     csv_file.flush()
                     total_written += page_new
-                    print(f"  +{page_new} new rows (total so far: {total_written})")
+                    print(f"  +{page_new} new rows (session total: {total_written}, file total: {len(seen_urls)})")
 
                     time.sleep(random.uniform(*delay_range))
 
     csv_file.close()
-    print(f"\nDone. {total_written} unique rows written to {out_path}")
+    print(f"\nDone. +{total_written} new rows this run. {out_path} now has {len(seen_urls)} unique rows total.")
     return total_written
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Scrape Zameen.com listing cards into a CSV.")
-    ap.add_argument("--cities", nargs="+", default=["Lahore", "Karachi", "Islamabad"],
-                     help="City slugs as used in Zameen URLs (e.g. Lahore, Karachi, Islamabad, Rawalpindi, Faisalabad).")
+    ap.add_argument("--cities", nargs="+",
+                     default=["Lahore", "Karachi", "Islamabad", "Rawalpindi", "Faisalabad", "Multan"],
+                     help=f"City names with a known location id. Known: {sorted(CITY_IDS)}")
     ap.add_argument("--purposes", nargs="+", default=["Homes", "Rentals"], choices=["Homes", "Rentals"],
                      help="Homes = for-sale listings, Rentals = for-rent listings.")
-    ap.add_argument("--pages", type=int, default=10, help="Max pages to fetch per city/purpose combo (~25 listings/page).")
+    ap.add_argument("--pages", type=int, default=15,
+                     help="Max pages to fetch per city/purpose combo (~25 listings/page). "
+                          "Default 6 cities x 2 purposes x 15 pages x 25/page = ~4500 raw, "
+                          "comfortably clears a 3000-row target after de-duplication.")
     ap.add_argument("--out", default="../data/raw/zameen_raw.csv", help="Output CSV path.")
     ap.add_argument("--no-headless", action="store_true", help="Run with a visible browser window (useful for debugging).")
     args = ap.parse_args()
