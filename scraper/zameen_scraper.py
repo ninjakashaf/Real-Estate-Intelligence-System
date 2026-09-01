@@ -7,8 +7,8 @@ once, which is what makes hitting a 500+ (or 3000+) row target realistic
 in a 7-day hackathon window. Detail-page scraping would be ~25x slower for
 the same row count.
 
-Output columns (matches the team's agreed schema):
-    url, type, purpose, area, bedroom, bath, added, price, location, location_city
+Output columns (matches the team's agreed schema, plus `source`):
+    url, type, purpose, area, bedroom, bath, added, price, location, location_city, source
 
 Selector strategy
 ------------------
@@ -63,6 +63,7 @@ from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 BASE_URL = "https://www.zameen.com"
+SOURCE_NAME = "Zameen"
 
 # City name (as used on the command line / in the location_city column) -> Zameen's internal location id.
 # Verified live on zameen.com on 2026-09-01.
@@ -94,7 +95,7 @@ TYPE_KEYWORDS = [
     "Residential Plot", "Commercial Plot", "Agricultural Land", "Plot", "Land",
 ]
 
-FIELDS = ["url", "type", "purpose", "area", "bedroom", "bath", "added", "price", "location", "location_city"]
+FIELDS = ["url", "type", "purpose", "area", "bedroom", "bath", "added", "price", "location", "location_city", "source"]
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -156,6 +157,7 @@ def extract_listing(card, purpose_path: str, city: str) -> dict | None:
             "price": price,
             "location": loc_el.inner_text().strip() if loc_el else "",
             "location_city": city,
+            "source": SOURCE_NAME,
         }
     except Exception as e:
         print(f"  ! failed to parse a card: {e}")

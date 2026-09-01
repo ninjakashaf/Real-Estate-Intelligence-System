@@ -119,3 +119,49 @@ per the rubric (Kaggle OR scraper, not both required).
 - [ ] Run `validate_and_promote.py` and confirm it promotes cleanly
 - [ ] Spot-check ~10 random rows against the live site for accuracy
 - [ ] Hand `data/processed/zameen_validated.csv` off for the cleaning/EDA notebook
+
+## OLX Pakistan scraper
+
+`olx_scraper.py` scrapes the same 10 fields (plus a `source` column, see
+below) from OLX Pakistan into `../data/raw/olx_raw.csv`. Same tooling, same
+politeness approach, same cross-run de-duplication as the Zameen scraper.
+
+```bash
+python olx_scraper.py
+# or scoped down, e.g.:
+python olx_scraper.py --cities Lahore Karachi --categories property-for-sale_c2 --pages 15
+```
+
+OLX's DOM uses the same kind of stable `aria-label` hooks as Zameen
+(`Listing`, `Price`, `Title`, `Subtitle`, `Location`, `Beds`, `Bathrooms`,
+`Area`, `Creation date`), verified live against
+`https://www.olx.com.pk/lahore_g4060673/property-for-sale_c2`. City ids are
+OLX-internal (found via OLX's own location search box, not derivable from
+the name) and are listed in `CITY_IDS` at the top of the file.
+
+## Combining sources: `source` column + merging
+
+Both scrapers write a `source` column (`Zameen` or `OLX`) so once you have
+listings from multiple sites you can tell them apart and merge them into
+one dataset:
+
+```bash
+# Merge two (or more) raw CSVs into one, de-duped by URL
+python merge_sources.py ../data/raw/zameen_raw.csv ../data/raw/olx_raw.csv --out ../data/raw/combined_raw.csv
+
+# If a file predates the `source` column (e.g. an old zameen_raw.csv
+# scraped before this was added), tell merge_sources.py what to backfill,
+# in the same order as the input files:
+python merge_sources.py ../data/raw/zameen_raw.csv ../data/raw/olx_raw.csv --sources Zameen OLX
+```
+
+Then validate the combined file the same way as before:
+
+```bash
+python validate_and_promote.py --raw ../data/raw/combined_raw.csv
+```
+
+`validate_and_promote.py` now also requires `source` on every row and
+prints a per-source row-count breakdown as part of its report, so you can
+see the sale/rent and Zameen/OLX split at a glance before promoting to
+`data/processed/`.

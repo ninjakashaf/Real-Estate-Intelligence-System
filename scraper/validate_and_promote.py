@@ -21,11 +21,11 @@ import shutil
 import sys
 from pathlib import Path
 
-REQUIRED_COLUMNS = ["url", "type", "purpose", "area", "bedroom", "bath", "added", "price", "location", "location_city"]
+REQUIRED_COLUMNS = ["url", "type", "purpose", "area", "bedroom", "bath", "added", "price", "location", "location_city", "source"]
 
 # Columns that should basically never be blank — if too many rows are
 # missing these, the scraper likely broke (selector changed, wrong page, etc.)
-CRITICAL_COLUMNS = ["url", "price", "area", "location", "location_city"]
+CRITICAL_COLUMNS = ["url", "price", "area", "location", "location_city", "source"]
 
 MAX_MISSING_RATE = 0.05  # fail if more than 5% of rows are missing a critical field
 
@@ -70,13 +70,19 @@ def validate(path: Path, min_rows: int):
     bad_purpose = sum(1 for r in rows if r.get("purpose") not in ("For Sale", "For Rent", "Unknown"))
     checks.append(("'purpose' values look sane", bad_purpose == 0, f"{bad_purpose} row(s) with an unexpected purpose value"))
 
-    return checks, rows
+    source_counts = {}
+    for r in rows:
+        s = r.get("source") or "(blank)"
+        source_counts[s] = source_counts.get(s, 0) + 1
+
+    return checks, rows, source_counts
 
 
 def main():
     ap = argparse.ArgumentParser(description="Validate the scraped dataset and promote it to data/processed if it passes.")
-    ap.add_argument("--raw", default="../data/raw/zameen_raw.csv", help="Path to the raw scraped CSV.")
-    ap.add_argument("--processed", default="../data/processed/zameen_validated.csv",
+    ap.add_argument("--raw", default="../data/raw/combined_raw.csv",
+                     help="Path to the raw CSV to validate — typically the output of merge_sources.py.")
+    ap.add_argument("--processed", default="../data/processed/listings_validated.csv",
                      help="Where to copy the file if it passes validation.")
     ap.add_argument("--min-rows", type=int, default=3000, help="Minimum acceptable row count.")
     ap.add_argument("--force", action="store_true",
@@ -86,7 +92,7 @@ def main():
     raw_path = Path(args.raw)
     processed_path = Path(args.processed)
 
-    checks, rows = validate(raw_path, args.min_rows)
+    checks, rows, source_counts = validate(raw_path, args.min_rows)
 
     print(f"\nValidation report for {raw_path}")
     print("-" * 60)
@@ -96,6 +102,8 @@ def main():
         if not passed:
             all_passed = False
         print(f"[{status}] {name} — {detail}")
+    print("-" * 60)
+    print("Rows by source: " + ", ".join(f"{k}={v}" for k, v in sorted(source_counts.items())))
     print("-" * 60)
 
     if all_passed or args.force:
