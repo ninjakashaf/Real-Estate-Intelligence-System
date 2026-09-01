@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# Playwright
+scraper/venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Large/raw scrape dumps you don't want tracked (keep the curated CSV instead)
+data/raw/*.tmp
+
+# Env/secrets
+.env
