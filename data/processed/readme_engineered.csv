@@ -1,0 +1,19 @@
+Column,Description
+Bedroom,Number of bedrooms (raw)
+Bath,Number of bathrooms (raw)
+Area_sqft,"Property area in square feet (raw, unit-normalized)"
+Log_area_sqft,Natural log of Area_sqft (linearizes the size-price relationship)
+Area_per_bedroom,Area_sqft / Bedroom (space per room; Area_sqft used when Bedroom=0)
+Bath_bedroom_ratio,Bath / Bedroom (build-quality/luxury signal; 0 when Bedroom=0)
+Location_median_ppsf,"Median price-per-sqft for the listing's location, fit on TRAIN only (leak-safe), falls back to city then global median"
+Type_target_enc,"Property type (House/Apartment/Plot/etc.) target-encoded as mean Log_price, fit on TRAIN only"
+City_target_enc,"City target-encoded as mean Log_price, fit on TRAIN only"
+Source_OLX,"1 if listing source is OLX, 0 if Zameen"
+Price_pkr,TARGET (raw) - sale price in PKR
+Log_price,"TARGET (recommended) - natural log of Price_pkr; train on this, then np.exp() predictions to get PKR back"
+,
+Notes,
+Rows removed,"3 suspected-outlier rows removed (absurd price-per-sqft values, likely data errors)"
+Leakage handling,"Location_median_ppsf, Type_target_enc, City_target_enc are computed on the Train sheet only, then mapped onto Test - safe to evaluate model generalization"
+Recommended target,Use Log_price as the regression target (price is right-skewed); exponentiate predictions with np.exp() to report PKR
+Missing values,None in either sheet
