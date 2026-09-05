@@ -19,3 +19,5 @@ data/raw/*.tmp
 
 # Env/secrets
 .env
+notebooks/models/
+*.pkl
